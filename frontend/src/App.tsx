@@ -227,7 +227,7 @@ export default function App() {
         if (defaultWs) {
           setCurrentWorkspace(defaultWs);
         }
-        
+
         // Load workspaces
         setFetchingWorkspaces(true);
         const wRes = await api.get('/workspaces');
@@ -497,9 +497,7 @@ export default function App() {
           {/* Header/Navbar */}
           <header className="w-full max-w-7xl mx-auto h-20 px-6 flex items-center justify-between border-b border-slate-800/40 relative z-20">
             <div className="flex items-center gap-3">
-              <div className="p-1 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
-                <img src={logoIcon} alt="IntellMeet Logo" className="h-7 w-7 object-contain" />
-              </div>
+              <img src={logoIcon} alt="IntellMeet Logo" className="h-9 w-9 object-contain" />
               <span className="font-extrabold text-xl logo-gradient-text bg-clip-text text-transparent tracking-tight">
                 IntellMeet
               </span>
@@ -635,12 +633,10 @@ export default function App() {
           >
             ← Back to Home
           </button>
-          
+
           <div className="w-full glass-panel p-8 rounded-2xl shadow-2xl relative border-slate-800">
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center p-2.5 bg-indigo-500/10 rounded-2xl mb-4 border border-indigo-500/20">
-                <img src={logoIcon} alt="IntellMeet Logo" className="h-10 w-10 object-contain" />
-              </div>
+              <img src={logoIcon} alt="IntellMeet Logo" className="h-14 w-14 object-contain mx-auto mb-4" />
               <h1 className="text-3xl font-extrabold tracking-tight logo-gradient-text bg-clip-text text-transparent">
                 IntellMeet
               </h1>
@@ -872,7 +868,7 @@ export default function App() {
       <aside className={`w-64 shrink-0 bg-slate-900/80 border-r border-slate-800/60 flex-col h-screen sticky top-0 ${currentView === 'meeting' && activeRoomId ? 'hidden' : 'hidden md:flex'}`}>
         {/* Brand */}
         <div className="h-16 px-6 flex items-center gap-3 border-b border-slate-800/60">
-          <img src={logoIcon} alt="IntellMeet Logo" className="h-7 w-7 object-contain" />
+          <img src={logoIcon} alt="IntellMeet Logo" className="h-9 w-9 object-contain" />
           <span className="font-bold text-lg sidebar-logo-text bg-clip-text text-transparent">
             IntellMeet
           </span>
@@ -1064,7 +1060,7 @@ export default function App() {
           >
             <div className="h-16 px-6 flex items-center justify-between border-b border-slate-800">
               <div className="flex items-center gap-2.5">
-                <img src={logoIcon} alt="IntellMeet Logo" className="h-5 w-5 object-contain" />
+                <img src={logoIcon} alt="IntellMeet Logo" className="h-8 w-8 object-contain" />
                 <span className="font-bold">IntellMeet</span>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
@@ -1133,14 +1129,14 @@ export default function App() {
               </button>
             </nav>
             <div className="p-4 border-t border-slate-800 bg-slate-950/40 flex gap-2">
-              <button 
+              <button
                 onClick={() => confirmNavigation(() => { setCurrentView('profile'); setMobileMenuOpen(false); })}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-800 hover:bg-indigo-500/10 hover:text-indigo-400 hover:border-indigo-500/20 text-slate-400 text-xs rounded-lg transition-colors cursor-pointer"
               >
                 <User className="h-4 w-4" /> Profile
               </button>
-              <button 
-                onClick={() => confirmNavigation(handleLogout)} 
+              <button
+                onClick={() => confirmNavigation(handleLogout)}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-800 hover:bg-rose-500/10 hover:text-rose-400 hover:border-rose-500/20 text-slate-400 text-xs rounded-lg transition-colors cursor-pointer"
               >
                 <LogOut className="h-4 w-4" /> Sign Out

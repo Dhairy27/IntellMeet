@@ -72,6 +72,7 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
   const [createTitle, setCreateTitle] = useState('');
   const [roomCodeInput, setRoomCodeInput] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [lobbyMode, setLobbyMode] = useState<'create' | 'join'>('join');
 
   // Media states
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -194,6 +195,7 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
       if (res.success && res.data?.roomId) {
         setRoomCode(res.data.roomId);
         setMeeting(res.data);
+        setLobbyMode('create');
         setHasSelectedRoom(true);
         setInLobby(true);
       } else {
@@ -215,6 +217,7 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
       return;
     }
     setRoomCode(cleanCode);
+    setLobbyMode('join');
     setHasSelectedRoom(true);
     setInLobby(true);
   };
@@ -227,6 +230,7 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
       setRoomCode('');
       setRoomCodeInput('');
       setMeeting(null);
+      setLobbyMode('join');
     }
   };
 
@@ -329,6 +333,31 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
     };
     checkAutoRejoin();
   }, [roomId]);
+
+  useEffect(() => {
+    const fetchMeetingDetails = async () => {
+      if (!roomId) return;
+      try {
+        const res = await api.get(`/meetings/${roomId}`);
+        if (res.success && res.data) {
+          setMeeting(res.data);
+          const hostObj = res.data.hostId || res.data.host;
+          const hostId = typeof hostObj === 'object' && hostObj !== null ? (hostObj._id || hostObj.id) : hostObj;
+          if (hostId && hostId === user?.id) {
+            setLobbyMode('create');
+          } else {
+            setLobbyMode('join');
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching meeting details in lobby:', err);
+      }
+    };
+
+    if (roomId && inLobby) {
+      fetchMeetingDetails();
+    }
+  }, [roomId, inLobby, user?.id]);
 
   useEffect(() => {
     if (inLobby) {
@@ -1025,14 +1054,17 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
           <div className="p-6 bg-slate-850/60 space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                Enter Meeting Code
+                {lobbyMode === 'create' ? 'Meeting Code' : 'Enter Meeting Code'}
               </label>
               <input
                 type="text"
                 value={roomCode}
                 onChange={(e) => setRoomCode(e.target.value)}
                 placeholder="e.g. ABC123"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-center font-mono tracking-widest text-slate-200"
+                readOnly={lobbyMode === 'create'}
+                className={`w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-center font-mono tracking-widest text-slate-200 ${
+                  lobbyMode === 'create' ? 'cursor-default select-all opacity-90' : ''
+                }`}
               />
             </div>
 
@@ -1048,7 +1080,7 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
                 disabled={!roomCode.trim()}
                 className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold cursor-pointer"
               >
-                Join Meeting
+                {lobbyMode === 'create' ? 'Create Meeting' : 'Join Meeting'}
               </button>
             </div>
           </div>
