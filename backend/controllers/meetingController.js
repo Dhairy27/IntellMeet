@@ -712,6 +712,12 @@ export const endMeeting = async (req, res) => {
 
     await meeting.save();
 
+    // Notify other active participants in the socket room
+    const io = req.app.get('io');
+    if (io) {
+      io.to(meeting.roomId).emit('meeting-ended', { meetingId: meeting._id });
+    }
+
     res.status(200).json({
       success: true,
       message: 'Meeting ended successfully',

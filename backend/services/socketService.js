@@ -5,6 +5,9 @@ export const handleSocketConnections = (io) => {
   // Structure: { roomId: { socketId: { userId, name, avatar, audioEnabled, videoEnabled } } }
   const activeRooms = {};
 
+  // Store active host timeout references for automatic termination
+  const hostTimeoutRefs = {};
+
   io.on('connection', (socket) => {
     console.log(`[Socket] New connection established: ${socket.id}`);
 
@@ -37,10 +40,23 @@ export const handleSocketConnections = (io) => {
 
       // Add user to meeting schema participants in db
       try {
-        await Meeting.findOneAndUpdate(
+        const meeting = await Meeting.findOneAndUpdate(
           { roomId },
-          { $addToSet: { participants: userId }, status: 'live' }
+          { $addToSet: { participants: userId }, status: 'live' },
+          { new: true }
         );
+
+        if (meeting) {
+          const hostId = meeting.hostId || meeting.host;
+          const hostIdStr = hostId ? hostId.toString() : '';
+          if (hostIdStr === userId.toString()) {
+            console.log(`[Socket] Host has joined/rejoined room ${roomId}. Clearing auto-end timer.`);
+            if (hostTimeoutRefs[roomId]) {
+              clearTimeout(hostTimeoutRefs[roomId]);
+              delete hostTimeoutRefs[roomId];
+            }
+          }
+        }
       } catch (err) {
         console.error('[Socket DB Error] Failed to update participants:', err.message);
       }
@@ -153,21 +169,89 @@ export const handleSocketConnections = (io) => {
     socket.on('disconnecting', () => {
       // Find all rooms this socket was in and remove it from active tracking
       const rooms = Array.from(socket.rooms);
-      rooms.forEach((roomId) => {
+      rooms.forEach(async (roomId) => {
         if (activeRooms[roomId] && activeRooms[roomId][socket.id]) {
           const userDetails = activeRooms[roomId][socket.id];
           delete activeRooms[roomId][socket.id];
 
+          // Notify others that the user disconnected
+          socket.to(roomId).emit('user-disconnected', {
+            socketId: socket.id,
+            userId: userDetails.userId,
+            name: userDetails.name,
+          });
+
+          // Check if this user is the host of the meeting
+          try {
+            const meeting = await Meeting.findOne({ roomId });
+            if (meeting && meeting.status === 'live') {
+              const hostId = meeting.hostId || meeting.host;
+              const hostIdStr = hostId ? hostId.toString() : '';
+              if (hostIdStr === userDetails.userId.toString()) {
+                console.log(`[Socket] Host (${userDetails.name}) left room ${roomId}. Starting 10-minute auto-end timer.`);
+                
+                // Clear any existing timeout first just in case
+                if (hostTimeoutRefs[roomId]) {
+                  clearTimeout(hostTimeoutRefs[roomId]);
+                }
+
+                // Start 10 min timer (10 * 60 * 1000)
+                const timeoutId = setTimeout(async () => {
+                  console.log(`[Socket] Host did not rejoin room ${roomId} within 10 minutes. Ending meeting automatically.`);
+                  delete hostTimeoutRefs[roomId];
+                  
+                  try {
+                    // Import models and AI service dynamically
+                    const MeetingParticipant = (await import('../models/MeetingParticipant.js')).default;
+                    const { generateMeetingIntelligence } = await import('./ai.service.js');
+
+                    // End the meeting in DB
+                    const currentMeeting = await Meeting.findOne({ roomId });
+                    if (currentMeeting && currentMeeting.status === 'live') {
+                      currentMeeting.status = 'completed';
+                      currentMeeting.actualEndTime = new Date();
+
+                      // Mark active participants as left
+                      const activeParticipants = await MeetingParticipant.find({
+                        meetingId: currentMeeting._id,
+                        leftAt: null
+                      });
+
+                      const now = new Date();
+                      await Promise.all(activeParticipants.map(async (part) => {
+                        part.leftAt = now;
+                        part.attendanceDuration = Math.max(0, Math.round((now.getTime() - part.joinedAt.getTime()) / 1000));
+                        await part.save();
+                      }));
+
+                      // Generate AI intelligence summary
+                      console.log(`[AI Trigger] Meeting ${currentMeeting.title} ended automatically. Extracting summary...`);
+                      const aiResults = await generateMeetingIntelligence(currentMeeting);
+                      currentMeeting.aiSummary = aiResults.summary;
+                      currentMeeting.aiActionItems = aiResults.actionItems;
+                      currentMeeting.recordingUrl = '';
+
+                      await currentMeeting.save();
+
+                      // Notify all remaining clients in the room to end/leave the meeting
+                      io.to(roomId).emit('meeting-ended', { meetingId: currentMeeting._id });
+                      console.log(`[Socket] Sent meeting-ended notification to room ${roomId}`);
+                    }
+                  } catch (e) {
+                    console.error('[Socket Auto-End Error] Failed to auto-end meeting:', e.message);
+                  }
+                }, 10 * 60 * 1000); // 10 minutes
+                
+                hostTimeoutRefs[roomId] = timeoutId;
+              }
+            }
+          } catch (err) {
+            console.error('[Socket DB Error] Failed to check host status on disconnect:', err.message);
+          }
+
           // If no one is left in the room, clean it up
           if (Object.keys(activeRooms[roomId]).length === 0) {
             delete activeRooms[roomId];
-          } else {
-            // Notify others that the user disconnected
-            socket.to(roomId).emit('user-disconnected', {
-              socketId: socket.id,
-              userId: userDetails.userId,
-              name: userDetails.name,
-            });
           }
         }
       });

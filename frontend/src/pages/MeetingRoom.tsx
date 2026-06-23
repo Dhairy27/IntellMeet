@@ -655,6 +655,11 @@ export default function MeetingRoom({ roomId, onMeetingEnded, onLeave }: Meeting
       }
     });
 
+    socket.on('meeting-ended', ({ meetingId }: { meetingId: string }) => {
+      alert("This meeting has been ended by the host or ended automatically due to host inactivity.");
+      onMeetingEnded(meetingId);
+    });
+
     // Real Speech-to-Text Transcription via Web Speech API
     let recognition: any = null;
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;

@@ -38,6 +38,7 @@ const io = new Server(server, {
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
+app.set('io', io);
 
 // Security, Compression & Parsing Middleware
 app.use(helmet({

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import Workspace from '../models/Workspace.js';
 import WorkspaceMember from '../models/WorkspaceMember.js';
 import WorkspaceInvitation from '../models/WorkspaceInvitation.js';
@@ -60,6 +61,90 @@ export const inviteUser = async (req, res, next) => {
     await logWorkspaceAction(workspaceId, req.user.id, 'Member invited', { email: emailNormalized });
 
     console.log(`\n========================================\n[SECURITY LOG] Generated Workspace Invitation Token for ${emailNormalized}: ${token}\n========================================\n`);
+
+    // Set up SMTP email transporter
+    const emailHost = process.env.EMAIL_HOST;
+    const emailPort = process.env.EMAIL_PORT || 587;
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
+
+    if (emailHost && emailUser && emailPass) {
+      try {
+        const transportConfig = emailHost.includes('gmail')
+          ? {
+              service: 'gmail',
+              auth: {
+                user: emailUser,
+                pass: emailPass,
+              },
+            }
+          : {
+              host: emailHost,
+              port: parseInt(emailPort),
+              secure: parseInt(emailPort) === 465,
+              auth: {
+                user: emailUser,
+                pass: emailPass,
+              },
+            };
+
+        const transporter = nodemailer.createTransport(transportConfig);
+
+        const workspace = await Workspace.findById(workspaceId);
+        const inviter = await User.findById(req.user.id);
+        const workspaceName = workspace ? workspace.name : 'IntellMeet Workspace';
+        const inviterName = inviter ? inviter.name : 'A team member';
+
+        const frontendUrl = req.headers.origin || 'http://localhost:3000';
+        const acceptUrl = `${frontendUrl}/?inviteToken=${token}`;
+
+        const emailSubject = `Invitation to join ${workspaceName} on IntellMeet`;
+        const emailHtml = `
+          <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff; color: #0f172a;">
+            <div style="text-align: center; margin-bottom: 24px;">
+              <h1 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800;">IntellMeet</h1>
+              <p style="color: #64748b; margin: 4px 0 0 0; font-size: 14px;">AI-Powered Enterprise Collaboration</p>
+            </div>
+            
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-bottom: 24px;" />
+            
+            <p style="font-size: 16px; line-height: 1.6; margin-bottom: 16px;">Hello,</p>
+            <p style="font-size: 16px; line-height: 1.6; margin-bottom: 24px;">
+              <strong>${inviterName}</strong> has invited you to collaborate in their workspace, <strong>${workspaceName}</strong>, on the IntellMeet platform.
+            </p>
+            
+            <div style="text-align: center; margin: 32px 0;">
+              <a href="${acceptUrl}" style="background-color: #4f46e5; color: #ffffff; padding: 12px 32px; border-radius: 8px; font-weight: 700; text-decoration: none; display: inline-block; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2), 0 2px 4px -1px rgba(79, 70, 229, 0.1); font-size: 14px;">
+                Accept Invitation
+              </a>
+            </div>
+            
+            <p style="font-size: 13px; color: #64748b; line-height: 1.6; margin-bottom: 16px;">
+              If the button above does not work, copy and paste the following URL into your browser:
+              <br />
+              <a href="${acceptUrl}" style="color: #4f46e5; word-break: break-all;">${acceptUrl}</a>
+            </p>
+            
+            <hr style="border: 0; border-top: 1px solid #e2e8f0; margin-top: 24px; margin-bottom: 16px;" />
+            
+            <p style="font-size: 12px; color: #94a3b8; text-align: center; margin: 0;">
+              This invitation was sent to ${emailNormalized} and will expire in 7 days.
+            </p>
+          </div>
+        `;
+
+        await transporter.sendMail({
+          from: `"IntellMeet Collaborations" <${emailUser}>`,
+          to: emailNormalized,
+          subject: emailSubject,
+          html: emailHtml,
+        });
+
+        console.log(`[Email] Workspace invitation sent to ${emailNormalized} via SMTP.`);
+      } catch (mailErr) {
+        console.error('[Email SMTP Error] Failed to send invitation email:', mailErr.message);
+      }
+    }
 
     return successResponse(res, 201, 'Invitation created successfully', {
       invitationId: invitation._id,

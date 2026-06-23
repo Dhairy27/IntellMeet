@@ -175,6 +175,68 @@ export default function App() {
     initAuth();
   }, [token]);
 
+  // Handle workspace invitation acceptance
+  useEffect(() => {
+    if (isInitializing) return;
+
+    const queryParams = new URLSearchParams(window.location.search);
+    const urlToken = queryParams.get('inviteToken');
+    
+    if (urlToken) {
+      localStorage.setItem('pendingInviteToken', urlToken);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    const processInvitation = async () => {
+      const storedToken = localStorage.getItem('pendingInviteToken');
+      if (!storedToken) return;
+
+      if (!isAuthenticated) {
+        setErrorMsg('Please log in or sign up to accept the workspace invitation.');
+        setShowAuthForm(true);
+        setAuthView('login');
+        return;
+      }
+
+      try {
+        setLoading(true);
+        console.log('[App] Attempting to accept workspace invitation...');
+        const res = await api.post('/workspaces/invitations/accept', { token: storedToken });
+        
+        if (res.success) {
+          localStorage.removeItem('pendingInviteToken');
+          alert('Successfully joined the new workspace!');
+          
+          setFetchingWorkspaces(true);
+          const wRes = await api.get('/workspaces');
+          if (wRes.success && Array.isArray(wRes.data)) {
+            const previousWorkspaceIds = workspaces.map((w: any) => w._id);
+            setWorkspaces(wRes.data);
+            
+            const newWorkspace = wRes.data.find((w: any) => !previousWorkspaceIds.includes(w._id));
+            if (newWorkspace) {
+              setCurrentWorkspace(newWorkspace);
+            } else if (wRes.data.length > 0) {
+              setCurrentWorkspace(wRes.data[wRes.data.length - 1]);
+            }
+          }
+          setCurrentView('dashboard');
+        } else {
+          const errMsg = extractErrorMessage(res.error, 'Failed to accept invitation');
+          alert(errMsg);
+          localStorage.removeItem('pendingInviteToken');
+        }
+      } catch (err) {
+        console.error('Failed to accept workspace invite', err);
+      } finally {
+        setLoading(false);
+        setFetchingWorkspaces(false);
+      }
+    };
+
+    processInvitation();
+  }, [isInitializing, isAuthenticated]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
