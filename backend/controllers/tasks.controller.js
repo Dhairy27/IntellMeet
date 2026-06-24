@@ -72,9 +72,7 @@ export const createTask = async (req, res, next) => {
       return errorResponse(res, 403, 'Access denied. You are not a member of this workspace.');
     }
 
-    if (membership.role === 'Member') {
-      return errorResponse(res, 403, 'Access denied. Workspace Members cannot create tasks.');
-    }
+    // All workspace members (Owner, Admin, Member) can create tasks.
 
     let assignee = null;
     if (assigneeId) {
@@ -127,11 +125,7 @@ export const updateTask = async (req, res, next) => {
       return errorResponse(res, 403, 'Access denied to this workspace.');
     }
 
-    // If Member role, they can only update status
-    const isEditRestricted = (title !== undefined || task !== undefined || description !== undefined || assigneeId !== undefined || priority !== undefined || dueDate !== undefined);
-    if (membership.role === 'Member' && isEditRestricted) {
-      return errorResponse(res, 403, 'Access denied. Members can only update card status.');
-    }
+    // All workspace members can modify task definitions.
 
     const updateData = {};
     if (title !== undefined) updateData.title = title;
@@ -180,8 +174,8 @@ export const deleteTask = async (req, res, next) => {
 
     // Verify membership
     const membership = await WorkspaceMember.findOne({ workspaceId: existingTask.workspace, userId: req.user.id });
-    if (!membership || membership.role === 'Member') {
-      return errorResponse(res, 403, 'Access denied. Requires Workspace Admin or Owner permissions.');
+    if (!membership) {
+      return errorResponse(res, 403, 'Access denied. Requires Workspace membership.');
     }
 
     await existingTask.deleteOne();

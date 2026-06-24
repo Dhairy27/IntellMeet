@@ -225,10 +225,7 @@ export const createTask = async (req, res, next) => {
       return errorResponse(res, 403, 'Unauthorized. You are not a member of this workspace.');
     }
 
-    // Enforce role permission (Admin or Owner to create tasks? Wait, description says: ADMIN manage tasks, MEMBER view tasks)
-    if (membership.role === 'Member') {
-      return errorResponse(res, 403, 'Access denied. Workspace Members cannot create tasks.');
-    }
+    // All workspace members (Owner, Admin, Member) can create tasks.
 
     let assignee = null;
     if (assigneeId) {
@@ -281,11 +278,7 @@ export const updateTask = async (req, res, next) => {
       return errorResponse(res, 403, 'Unauthorized to modify tasks in this workspace');
     }
 
-    // Member can only view or update status? In Kanban, Members can update status of tasks (move cards).
-    // Let's restrict core task edits (title, description, assignee) to Owner/Admin, but let status moves be allowed for everyone.
-    if (membership.role === 'Member' && (title || description || assigneeId)) {
-      return errorResponse(res, 403, 'Access denied. Members cannot modify task definitions, only card status.');
-    }
+    // All workspace members can modify task definitions.
 
     const updateData = {};
     if (title !== undefined) updateData.title = title;
@@ -332,10 +325,10 @@ export const deleteTask = async (req, res, next) => {
       return errorResponse(res, 404, 'Task not found');
     }
 
-    // Verify user role
+    // Verify membership
     const membership = await WorkspaceMember.findOne({ workspaceId: task.workspace, userId: req.user.id });
-    if (!membership || membership.role === 'Member') {
-      return errorResponse(res, 403, 'Unauthorized. Requires Owner or Admin role.');
+    if (!membership) {
+      return errorResponse(res, 403, 'Access denied. You are not a member of this workspace.');
     }
 
     await task.deleteOne();

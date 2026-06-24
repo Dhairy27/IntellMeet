@@ -54,7 +54,7 @@ router.get('/:id/invitations', protect, requireWorkspaceRole(['Owner', 'Admin', 
 router.delete('/:id/invitations/:invitationId', protect, requireWorkspaceRole(['Owner', 'Admin']), revokeInvitation);
 
 // Task routes nested or independent
-router.post('/:id/tasks', protect, requireWorkspaceRole(['Owner', 'Admin']), createTask);
+router.post('/:id/tasks', protect, requireWorkspaceRole(['Owner', 'Admin', 'Member']), createTask);
 router.put('/tasks/:taskId', protect, updateTask);
 router.delete('/tasks/:taskId', protect, deleteTask);
 
