@@ -118,6 +118,100 @@ export default function App() {
   // Notification state
   const [pendingInvites, setPendingInvites] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const notificationDropdownRef = React.useRef<HTMLDivElement>(null);
+
+  // Close notifications dropdown when clicking outside
+  useEffect(() => {
+    if (!showNotifications) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const dropdown = notificationDropdownRef.current;
+      const bellButton = document.querySelector('[title="Notifications"]');
+      if (
+        dropdown && 
+        !dropdown.contains(event.target as Node) && 
+        bellButton && 
+        !bellButton.contains(event.target as Node)
+      ) {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showNotifications]);
+
+  // Lock parent page scrolling when scrolling inside the notification container
+  useEffect(() => {
+    const dropdown = notificationDropdownRef.current;
+    if (!dropdown || !showNotifications) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      const scrollable = dropdown.querySelector('.overflow-y-auto');
+      if (!scrollable) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = scrollable as HTMLElement;
+      const deltaY = e.deltaY;
+      
+      const isInsideScrollable = scrollable.contains(e.target as Node);
+
+      if (!isInsideScrollable) {
+        e.preventDefault();
+        return;
+      }
+
+      const isScrollingUp = deltaY < 0;
+      const isScrollingDown = deltaY > 0;
+
+      if (isScrollingUp && scrollTop <= 0) {
+        e.preventDefault();
+      } else if (isScrollingDown && scrollTop + clientHeight >= scrollHeight) {
+        e.preventDefault();
+      }
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      (dropdown as any)._touchStartY = e.touches[0].clientY;
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const scrollable = dropdown.querySelector('.overflow-y-auto');
+      if (!scrollable) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = scrollable as HTMLElement;
+      const touchY = e.touches[0].clientY;
+      const touchStartY = (dropdown as any)._touchStartY || 0;
+      const deltaY = touchStartY - touchY;
+      
+      const isInsideScrollable = scrollable.contains(e.target as Node);
+
+      if (!isInsideScrollable) {
+        e.preventDefault();
+        return;
+      }
+
+      const isScrollingUp = deltaY < 0;
+      const isScrollingDown = deltaY > 0;
+
+      if (isScrollingUp && scrollTop <= 0) {
+        e.preventDefault();
+      } else if (isScrollingDown && scrollTop + clientHeight >= scrollHeight) {
+        e.preventDefault();
+      }
+    };
+
+    dropdown.addEventListener('wheel', handleWheel, { passive: false });
+    dropdown.addEventListener('touchstart', handleTouchStart, { passive: true });
+    dropdown.addEventListener('touchmove', handleTouchMove, { passive: false });
+    
+    return () => {
+      dropdown.removeEventListener('wheel', handleWheel);
+      dropdown.removeEventListener('touchstart', handleTouchStart);
+      dropdown.removeEventListener('touchmove', handleTouchMove);
+    };
+  }, [showNotifications]);
 
   const hasInitializedRef = React.useRef(false);
 
@@ -1209,8 +1303,12 @@ export default function App() {
 
               {/* Notification Dropdown */}
               {showNotifications && (
-                <div className="absolute right-0 mt-2 w-80 glass-panel rounded-xl shadow-2xl overflow-hidden border-slate-800 bg-slate-950 z-50 py-1 divide-y divide-slate-800/80">
-                  <div className="px-4 py-2 flex justify-between items-center bg-slate-900/40">
+                <div 
+                  ref={notificationDropdownRef}
+                  className="absolute right-0 mt-2 w-[calc(100vw-2rem)] sm:w-[420px] bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50 py-1 divide-y divide-slate-800/85"
+                  style={{ backgroundColor: 'var(--slate-900)', backdropFilter: 'none', WebkitBackdropFilter: 'none' }}
+                >
+                  <div className="px-4 py-2 flex justify-between items-center bg-slate-950/45">
                     <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Notifications</span>
                     {pendingInvites.length > 0 && (
                       <span className="text-[10px] bg-rose-500/10 border border-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded-full font-bold">
@@ -1219,7 +1317,7 @@ export default function App() {
                     )}
                   </div>
                   
-                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-900/60">
+                  <div className="max-h-64 overflow-y-auto overscroll-y-contain divide-y divide-slate-950">
                     {pendingInvites.length === 0 ? (
                       <div className="px-4 py-6 text-center text-slate-500 text-xs">
                         No new notifications
@@ -1229,12 +1327,12 @@ export default function App() {
                         const wsName = invite.workspaceId?.name || 'Workspace';
                         const inviterName = invite.invitedBy?.name || invite.invitedBy?.email || 'Someone';
                         return (
-                          <div key={invite._id} className="p-4 space-y-3 hover:bg-slate-900/20 transition-colors">
+                          <div key={invite._id} className="p-4 space-y-3 hover:bg-slate-850 transition-colors">
                             <div className="space-y-1">
-                              <p className="text-xs text-slate-350 leading-relaxed text-left">
-                                <strong className="text-slate-200 font-semibold">{inviterName}</strong> invited you to collaborate in <strong className="text-indigo-400 font-semibold">{wsName}</strong>.
+                              <p className="text-xs text-slate-400 leading-relaxed text-left">
+                                <strong className="text-slate-200 font-semibold">{inviterName}</strong> invited you to collaborate in <strong className="text-indigo-600 font-semibold">{wsName}</strong>.
                               </p>
-                              <p className="text-[9px] text-slate-505 font-mono text-left">
+                              <p className="text-[9px] text-slate-500 font-mono text-left">
                                 Expires: {new Date(invite.expiresAt).toLocaleDateString()}
                               </p>
                             </div>
