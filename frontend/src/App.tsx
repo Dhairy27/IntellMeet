@@ -115,6 +115,10 @@ export default function App() {
   const [googleClientId, setGoogleClientId] = useState<string>('');
   const [isVerifyingGoogle, setIsVerifyingGoogle] = useState(false);
 
+  // Notification state
+  const [pendingInvites, setPendingInvites] = useState<any[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+
   const hasInitializedRef = React.useRef(false);
 
   // Load user profile if token is present, or try silent refresh
@@ -210,12 +214,20 @@ export default function App() {
           setFetchingWorkspaces(true);
           const wRes = await api.get('/workspaces');
           if (wRes.success && Array.isArray(wRes.data)) {
-            const previousWorkspaceIds = workspaces.map((w: any) => w._id);
+            const currentWorkspacesInStore = useAppStore.getState().workspaces;
+            const previousWorkspaceIds = currentWorkspacesInStore.map((w: any) => w._id);
             setWorkspaces(wRes.data);
             
-            const newWorkspace = wRes.data.find((w: any) => !previousWorkspaceIds.includes(w._id));
-            if (newWorkspace) {
-              setCurrentWorkspace(newWorkspace);
+            // Set current workspace to the newly joined workspace
+            const acceptedWorkspaceId = res.data?.workspaceId || res.data?.workspace?._id;
+            let targetWorkspace = wRes.data.find((w: any) => w._id === acceptedWorkspaceId);
+            
+            if (!targetWorkspace) {
+              targetWorkspace = wRes.data.find((w: any) => !previousWorkspaceIds.includes(w._id));
+            }
+            
+            if (targetWorkspace) {
+              setCurrentWorkspace(targetWorkspace);
             } else if (wRes.data.length > 0) {
               setCurrentWorkspace(wRes.data[wRes.data.length - 1]);
             }
@@ -236,6 +248,91 @@ export default function App() {
 
     processInvitation();
   }, [isInitializing, isAuthenticated]);
+
+  const fetchNotifications = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await api.get('/workspaces/invitations/pending');
+      if (res && res.success && Array.isArray(res.data)) {
+        setPendingInvites(res.data);
+      }
+    } catch (err) {
+      console.error('Failed to fetch pending notifications', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setPendingInvites([]);
+      return;
+    }
+    
+    fetchNotifications();
+    
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated]);
+
+  const handleAcceptNotification = async (token: string) => {
+    try {
+      setLoading(true);
+      const res = await api.post('/workspaces/invitations/accept', { token });
+      if (res.success) {
+        alert('Successfully joined the new workspace!');
+        
+        // Refresh workspaces list
+        setFetchingWorkspaces(true);
+        const wRes = await api.get('/workspaces');
+        if (wRes.success && Array.isArray(wRes.data)) {
+          setWorkspaces(wRes.data);
+          
+          // Select the accepted workspace as current
+          const acceptedWorkspaceId = res.data?.workspaceId || res.data?.workspace?._id;
+          const targetWorkspace = wRes.data.find((w: any) => w._id === acceptedWorkspaceId);
+          if (targetWorkspace) {
+            setCurrentWorkspace(targetWorkspace);
+          } else if (wRes.data.length > 0) {
+            setCurrentWorkspace(wRes.data[wRes.data.length - 1]);
+          }
+        }
+        
+        // Refresh notifications
+        fetchNotifications();
+        setCurrentView('dashboard');
+      } else {
+        alert(extractErrorMessage(res.error, 'Failed to accept invitation'));
+      }
+    } catch (err) {
+      console.error('Failed to accept workspace invite', err);
+      alert('Server connection failed.');
+    } finally {
+      setLoading(false);
+      setFetchingWorkspaces(false);
+      setShowNotifications(false);
+    }
+  };
+
+  const handleRejectNotification = async (token: string) => {
+    const confirmReject = window.confirm('Are you sure you want to decline this workspace invitation?');
+    if (!confirmReject) return;
+    
+    try {
+      setLoading(true);
+      const res = await api.post('/workspaces/invitations/reject', { token });
+      if (res.success) {
+        alert('Invitation declined successfully.');
+        fetchNotifications();
+      } else {
+        alert(extractErrorMessage(res.error, 'Failed to decline invitation'));
+      }
+    } catch (err) {
+      console.error('Failed to reject workspace invite', err);
+      alert('Server connection failed.');
+    } finally {
+      setLoading(false);
+      setShowNotifications(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1097,11 +1194,72 @@ export default function App() {
             </h2>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800/50 cursor-pointer relative transition-colors">
-              <Bell className="h-4.5 w-4.5" />
-              <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 bg-indigo-500 rounded-full" />
-            </button>
+          <div className="flex items-center gap-4 relative">
+            <div className="relative">
+              <button 
+                onClick={() => setShowNotifications(!showNotifications)}
+                className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800/50 cursor-pointer relative transition-colors"
+                title="Notifications"
+              >
+                <Bell className="h-4.5 w-4.5" />
+                {pendingInvites.length > 0 && (
+                  <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 bg-rose-500 rounded-full animate-pulse" />
+                )}
+              </button>
+
+              {/* Notification Dropdown */}
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-80 glass-panel rounded-xl shadow-2xl overflow-hidden border-slate-800 bg-slate-950 z-50 py-1 divide-y divide-slate-800/80">
+                  <div className="px-4 py-2 flex justify-between items-center bg-slate-900/40">
+                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">Notifications</span>
+                    {pendingInvites.length > 0 && (
+                      <span className="text-[10px] bg-rose-500/10 border border-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded-full font-bold">
+                        {pendingInvites.length} Pending
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-900/60">
+                    {pendingInvites.length === 0 ? (
+                      <div className="px-4 py-6 text-center text-slate-500 text-xs">
+                        No new notifications
+                      </div>
+                    ) : (
+                      pendingInvites.map((invite) => {
+                        const wsName = invite.workspaceId?.name || 'Workspace';
+                        const inviterName = invite.invitedBy?.name || invite.invitedBy?.email || 'Someone';
+                        return (
+                          <div key={invite._id} className="p-4 space-y-3 hover:bg-slate-900/20 transition-colors">
+                            <div className="space-y-1">
+                              <p className="text-xs text-slate-350 leading-relaxed text-left">
+                                <strong className="text-slate-200 font-semibold">{inviterName}</strong> invited you to collaborate in <strong className="text-indigo-400 font-semibold">{wsName}</strong>.
+                              </p>
+                              <p className="text-[9px] text-slate-505 font-mono text-left">
+                                Expires: {new Date(invite.expiresAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleAcceptNotification(invite.token)}
+                                className="flex-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold cursor-pointer transition-colors"
+                              >
+                                Join
+                              </button>
+                              <button
+                                onClick={() => handleRejectNotification(invite.token)}
+                                className="flex-1 px-3 py-1.5 bg-slate-850 hover:bg-slate-800 text-slate-300 rounded text-[10px] font-bold cursor-pointer transition-colors border border-slate-800/80"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="h-5 w-[1px] bg-slate-800/80" />
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-400 font-medium">{user?.role}</span>

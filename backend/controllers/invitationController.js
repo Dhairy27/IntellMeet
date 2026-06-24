@@ -6,6 +6,7 @@ import WorkspaceInvitation from '../models/WorkspaceInvitation.js';
 import User from '../models/User.js';
 import { successResponse, errorResponse } from '../utils/apiResponse.js';
 import { logWorkspaceAction } from '../services/auditLogService.js';
+import { createDefaultWorkspaceForUser } from './authController.js';
 
 // @desc    Invite a user by email
 // @route   POST /api/workspaces/:id/invite
@@ -179,8 +180,8 @@ export const acceptInvitation = async (req, res, next) => {
       return errorResponse(res, 400, 'Invalid or expired invitation token');
     }
 
-    // Verify email matches the logged-in user's email
-    if (invitation.email !== req.user.email) {
+    // Verify email matches the logged-in user's email (case-insensitive and trimmed)
+    if (invitation.email.toLowerCase().trim() !== req.user.email.toLowerCase().trim()) {
       return errorResponse(res, 403, 'Permission denied. Email address mismatch.');
     }
 
@@ -203,7 +204,18 @@ export const acceptInvitation = async (req, res, next) => {
     // Log action
     await logWorkspaceAction(invitation.workspaceId, req.user.id, 'Invitation accepted', { email: invitation.email });
 
-    return successResponse(res, 200, 'Workspace invitation accepted successfully');
+    // Fetch and populate workspace details to send back to frontend
+    const workspace = await Workspace.findById(invitation.workspaceId).populate('owner', 'name email avatar');
+    let wsObj = {};
+    if (workspace) {
+      wsObj = workspace.toObject();
+      wsObj.role = 'Member';
+    }
+
+    return successResponse(res, 200, 'Workspace invitation accepted successfully', {
+      workspaceId: invitation.workspaceId,
+      workspace: wsObj,
+    });
   } catch (error) {
     next(error);
   }
@@ -230,7 +242,7 @@ export const rejectInvitation = async (req, res, next) => {
       return errorResponse(res, 400, 'Invalid or expired invitation token');
     }
 
-    if (invitation.email !== req.user.email) {
+    if (invitation.email.toLowerCase().trim() !== req.user.email.toLowerCase().trim()) {
       return errorResponse(res, 403, 'Permission denied. Email address mismatch.');
     }
 
@@ -246,3 +258,145 @@ export const rejectInvitation = async (req, res, next) => {
     next(error);
   }
 };
+
+// @desc    Get pending invitations for a workspace
+// @route   GET /api/workspaces/:id/invitations
+// @access  Private (Owner, Admin, Member role required)
+export const getPendingInvitations = async (req, res, next) => {
+  try {
+    const workspaceId = req.params.id;
+
+    const invitations = await WorkspaceInvitation.find({
+      workspaceId,
+      status: 'pending',
+      expiresAt: { $gt: Date.now() },
+    }).sort({ createdAt: -1 });
+
+    return successResponse(res, 200, 'Pending invitations retrieved successfully', invitations);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Revoke/delete a pending workspace invitation
+// @route   DELETE /api/workspaces/:id/invitations/:invitationId
+// @access  Private (Owner or Admin role required)
+export const revokeInvitation = async (req, res, next) => {
+  try {
+    const { invitationId } = req.params;
+
+    const invitation = await WorkspaceInvitation.findById(invitationId);
+    if (!invitation) {
+      return errorResponse(res, 404, 'Invitation not found');
+    }
+
+    // Verify invitation belongs to this workspace
+    if (invitation.workspaceId.toString() !== req.params.id) {
+      return errorResponse(res, 400, 'Invitation does not belong to this workspace');
+    }
+
+    // Delete/Revoke invitation
+    await invitation.deleteOne();
+
+    // Log action
+    await logWorkspaceAction(req.params.id, req.user.id, 'Invitation revoked', { email: invitation.email });
+
+    return successResponse(res, 200, 'Workspace invitation revoked successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Admin/Owner directly accepts a pending invitation on behalf of the invited user
+// @route   POST /api/workspaces/:id/invitations/:invitationId/accept
+// @access  Private (Owner or Admin role required)
+export const adminAcceptInvitation = async (req, res, next) => {
+  try {
+    const { invitationId } = req.params;
+
+    const invitation = await WorkspaceInvitation.findById(invitationId);
+    if (!invitation) {
+      return errorResponse(res, 404, 'Invitation not found');
+    }
+
+    if (invitation.workspaceId.toString() !== req.params.id) {
+      return errorResponse(res, 400, 'Invitation does not belong to this workspace');
+    }
+
+    if (invitation.status !== 'pending') {
+      return errorResponse(res, 400, 'Invitation is not pending');
+    }
+
+    // Find or create the target user
+    let targetUser = await User.findOne({ email: invitation.email });
+    if (!targetUser) {
+      // Auto-create user account if not registered yet
+      const colors = ['#E11D48', '#2563EB', '#16A34A', '#D97706', '#7C3AED', '#0891B2'];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      const emailPrefix = invitation.email.split('@')[0];
+      const displayName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
+      
+      targetUser = await User.create({
+        name: displayName,
+        email: invitation.email,
+        password: crypto.randomBytes(16).toString('hex'), // random password
+        avatar: randomColor,
+      });
+
+      await createDefaultWorkspaceForUser(targetUser);
+    }
+
+    // Check if already a member (safety check)
+    const alreadyMember = await WorkspaceMember.findOne({
+      workspaceId: invitation.workspaceId,
+      userId: targetUser._id,
+    });
+
+    if (!alreadyMember) {
+      // Create membership record (default role: Member)
+      await WorkspaceMember.create({
+        workspaceId: invitation.workspaceId,
+        userId: targetUser._id,
+        role: 'Member',
+      });
+
+      // Link workspace to user Model workspaces array for backwards compatibility
+      await User.findByIdAndUpdate(targetUser._id, {
+        $addToSet: { workspaces: invitation.workspaceId },
+      });
+    }
+
+    // Update invitation status
+    invitation.status = 'accepted';
+    await invitation.save();
+
+    // Log action
+    await logWorkspaceAction(invitation.workspaceId, req.user.id, 'Invitation accepted by admin', { email: invitation.email, targetUserId: targetUser._id });
+
+    return successResponse(res, 200, 'Invitation accepted and user joined workspace successfully');
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get pending invitations for the logged-in user
+// @route   GET /api/workspaces/invitations/pending
+// @access  Private (Requires login)
+export const getMyPendingInvitations = async (req, res, next) => {
+  try {
+    const invitations = await WorkspaceInvitation.find({
+      email: req.user.email.toLowerCase().trim(),
+      status: 'pending',
+      expiresAt: { $gt: Date.now() },
+    })
+      .populate('workspaceId', 'name description')
+      .populate('invitedBy', 'name email avatar');
+
+    return successResponse(res, 200, 'Pending invitations retrieved successfully', invitations);
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+

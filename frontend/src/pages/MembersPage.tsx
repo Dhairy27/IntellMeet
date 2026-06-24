@@ -8,6 +8,7 @@ export default function MembersPage() {
   const { currentWorkspace, user } = useAppStore();
   
   const [members, setMembers] = useState<any[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRole] = useState('Member');
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -33,8 +34,14 @@ export default function MembersPage() {
       if (detRes && detRes.success && detRes.data?.workspace) {
         setUserRole(detRes.data.workspace.userRole || 'Member');
       }
+
+      // Fetch pending invitations
+      const invRes = await api.get(`/workspaces/${currentWorkspace._id}/invitations`);
+      if (invRes && invRes.success && Array.isArray(invRes.data)) {
+        setPendingInvites(invRes.data);
+      }
     } catch (err) {
-      console.error('Failed to load workspace members', err);
+      console.error('Failed to load workspace members or invitations', err);
     } finally {
       setLoading(false);
     }
@@ -59,6 +66,11 @@ export default function MembersPage() {
           setInviteToken(res.data.token);
         }
         setInviteEmail('');
+        // Refresh pending invitations
+        const invRes = await api.get(`/workspaces/${currentWorkspace._id}/invitations`);
+        if (invRes && invRes.success && Array.isArray(invRes.data)) {
+          setPendingInvites(invRes.data);
+        }
       } else {
         setMessage({ type: 'error', text: extractErrorMessage(res.error, 'Failed to send invitation') });
       }
@@ -68,6 +80,29 @@ export default function MembersPage() {
       setInviteLoading(false);
     }
   };
+
+  const handleRevoke = async (invitationId: string, email: string) => {
+    if (!currentWorkspace) return;
+    const confirmRevoke = window.confirm(`Are you sure you want to revoke the invitation sent to ${email}?`);
+    if (!confirmRevoke) return;
+
+    try {
+      const res = await api.delete(`/workspaces/${currentWorkspace._id}/invitations/${invitationId}`);
+      if (res.success) {
+        alert(extractErrorMessage(res.message, 'Invitation revoked successfully!'));
+        // Refresh pending invitations
+        const invRes = await api.get(`/workspaces/${currentWorkspace._id}/invitations`);
+        if (invRes && invRes.success && Array.isArray(invRes.data)) {
+          setPendingInvites(invRes.data);
+        }
+      } else {
+        alert(extractErrorMessage(res.error, 'Failed to revoke invitation'));
+      }
+    } catch (err) {
+      alert('Server connection failed.');
+    }
+  };
+
 
   const handleRoleChange = async (targetUserId: string, newRole: string) => {
     if (!currentWorkspace) return;
@@ -247,6 +282,58 @@ export default function MembersPage() {
           })}
         </div>
       </div>
+
+      {/* Pending Invitations Directory */}
+      {pendingInvites.length > 0 && (
+        <div className="glass-panel rounded-2xl border-slate-800 bg-slate-900/10 overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-800/60 bg-slate-900/20">
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider">Pending Invitations ({pendingInvites.length})</h3>
+          </div>
+
+          <div className="divide-y divide-slate-800/60">
+            {pendingInvites.map((invite) => {
+              const inviteId = invite._id || invite.id;
+              return (
+                <div key={inviteId} className="px-6 py-4 flex items-center justify-between gap-4 flex-wrap sm:flex-nowrap hover:bg-slate-900/10 transition-colors">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full flex items-center justify-center font-bold text-sm text-slate-400 bg-slate-800 border border-white/5">
+                      <Mail className="h-5 w-5 text-indigo-400" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-200">{invite.email}</p>
+                      <div className="flex flex-wrap items-center gap-x-2 text-[10px] text-slate-405 mt-0.5">
+                        <span>Invited: {new Date(invite.createdAt).toLocaleDateString()}</span>
+                        <span>•</span>
+                        <span>Expires: {new Date(invite.expiresAt).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 ml-auto sm:ml-0">
+                    {/* Simulated token block (helpful for testing) */}
+                    <div className="hidden lg:flex items-center gap-1.5 bg-slate-950 px-2.5 py-1.5 rounded-lg border border-slate-850 text-[10px] font-mono text-slate-400 select-all max-w-xs truncate" title={invite.token}>
+                      <span className="text-[9px] text-slate-500 font-bold uppercase select-none">Token:</span>
+                      {invite.token.substring(0, 10)}...
+                    </div>
+
+
+                    {/* Revoke button */}
+                    {isAuthorized && (
+                      <button
+                        onClick={() => handleRevoke(inviteId, invite.email)}
+                        className="p-1.5 rounded-lg border cursor-pointer transition-colors bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border-rose-500/20 hover:text-rose-300"
+                        title="Revoke Invitation"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Invite Member Modal */}
       {showInviteModal && (
